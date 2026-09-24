@@ -2051,4 +2051,3 @@
     setMessage(`${error.message} · Lance index.html via le serveur local WebStorm, pas en file://.`, "error", true);
   });
 })();
-})();
