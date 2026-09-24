@@ -55,6 +55,7 @@
     sessionHistory: [],
     records: [],
     runArchive: [],
+    pinnedIds: new Set(),
     settings: {
       mode: "free",
       difficulty: "__all__",
@@ -290,6 +291,7 @@
     state.free = { discovered: {}, craftCount: 0 };
     state.records = [];
     state.runArchive = [];
+    state.pinnedIds = new Set();
     state.settings = defaultSettings();
 
     let loadedV3 = false;
@@ -303,6 +305,11 @@
         };
         state.records = Array.isArray(parsed.records) ? parsed.records.slice(0, RECORDS_LIMIT) : [];
         state.runArchive = Array.isArray(parsed.runs) ? parsed.runs.slice(0, RUN_ARCHIVE_LIMIT) : [];
+        state.pinnedIds = new Set(
+          Array.isArray(parsed.pins)
+            ? parsed.pins.filter((id) => typeof id === "string" && state.byId.has(id))
+            : []
+        );
         state.settings = normalizeSettings(parsed.settings);
         loadedV3 = true;
       }
@@ -324,6 +331,7 @@
         },
         records: state.records.slice(0, RECORDS_LIMIT),
         runs: state.runArchive.slice(0, RUN_ARCHIVE_LIMIT),
+        pins: Array.from(state.pinnedIds),
         settings: normalizeSettings(state.settings)
       };
       localStorage.setItem(APP_SAVE_KEY, JSON.stringify(payload));
@@ -449,6 +457,165 @@
     }
   }
 
+
+  function desktopEnhancementsEnabled() {
+    return !!window.matchMedia?.("(hover: hover) and (pointer: fine) and (min-width: 769px)")?.matches;
+  }
+
+  function isPinned(index) {
+    const item = element(index);
+    return !!item && state.pinnedIds.has(item.id);
+  }
+
+  function togglePinned(index) {
+    const item = element(index);
+    if (!item) return;
+
+    if (state.pinnedIds.has(item.id)) {
+      state.pinnedIds.delete(item.id);
+    } else {
+      state.pinnedIds.add(item.id);
+    }
+
+    saveAppState();
+    renderCollection();
+    renderPokedex();
+  }
+
+  function pinButtonHtml(index) {
+    const pinned = isPinned(index);
+    return `
+      <button
+        type="button"
+        class="elementPinButton${pinned ? " pinned" : ""}"
+        data-pin-index="${index}"
+        aria-label="${pinned ? "Désépingler" : "Épingler"} ${escapeHtml(element(index)?.name || "")}"
+        title="${pinned ? "Désépingler" : "Épingler"}"
+      >📌</button>`;
+  }
+
+  function preferredRecipeForElement(index) {
+    if (state.bases.includes(index)) {
+      return { type: "base", recipe: null, alternatives: 0 };
+    }
+
+    const incoming = state.incoming[index] || [];
+    if (!incoming.length) {
+      return { type: "none", recipe: null, alternatives: 0 };
+    }
+
+    const preferred = state.bestParent[index] || incoming.slice().sort((x, y) => {
+      const xd = Math.max(state.depth[x.a] || 999, state.depth[x.b] || 999);
+      const yd = Math.max(state.depth[y.a] || 999, state.depth[y.b] || 999);
+      return xd - yd;
+    })[0];
+
+    return {
+      type: "recipe",
+      recipe: preferred,
+      alternatives: Math.max(0, incoming.length - 1)
+    };
+  }
+
+  function recipeTooltipHtml(index) {
+    const item = element(index);
+    if (!item) return "";
+
+    const info = preferredRecipeForElement(index);
+
+    if (info.type === "base") {
+      return `
+        <span class="recipeTooltipKicker">ÉLÉMENT DE BASE</span>
+        <strong class="recipeTooltipTitle">${escapeHtml(item.emoji)} ${escapeHtml(item.name)}</strong>
+        <span class="recipeTooltipNote">Disponible dès le début de la partie.</span>`;
+    }
+
+    if (info.type !== "recipe" || !info.recipe) {
+      return `
+        <span class="recipeTooltipKicker">RECETTE</span>
+        <strong class="recipeTooltipTitle">${escapeHtml(item.emoji)} ${escapeHtml(item.name)}</strong>
+        <span class="recipeTooltipNote">Aucune recette explicite disponible.</span>`;
+    }
+
+    const a = element(info.recipe.a);
+    const b = element(info.recipe.b);
+    const r = element(info.recipe.r);
+    const alternatives = info.alternatives > 0
+      ? `<span class="recipeTooltipAlternatives">+ ${info.alternatives} autre${info.alternatives > 1 ? "s" : ""} recette${info.alternatives > 1 ? "s" : ""}</span>`
+      : "";
+
+    return `
+      <span class="recipeTooltipKicker">RECETTE LA PLUS SIMPLE</span>
+      <strong class="recipeTooltipTitle">${escapeHtml(r.emoji)} ${escapeHtml(r.name)}</strong>
+      <div class="recipeTooltipFormula">
+        <span>${escapeHtml(a.emoji)} ${escapeHtml(a.name)}</span>
+        <b>+</b>
+        <span>${escapeHtml(b.emoji)} ${escapeHtml(b.name)}</span>
+      </div>
+      ${alternatives}`;
+  }
+
+  function positionRecipeTooltip(anchor) {
+    const tooltip = $("#recipeHoverTooltip");
+    if (!tooltip || !anchor || !desktopEnhancementsEnabled()) return;
+
+    const rect = anchor.getBoundingClientRect();
+    const margin = 12;
+    const width = tooltip.offsetWidth;
+    const height = tooltip.offsetHeight;
+
+    let left = rect.left + rect.width / 2 - width / 2;
+    left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+
+    let top = rect.top - height - 10;
+    if (top < margin) {
+      top = rect.bottom + 10;
+    }
+
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  }
+
+  function showRecipeTooltip(index, anchor) {
+    if (!desktopEnhancementsEnabled()) return;
+    const tooltip = $("#recipeHoverTooltip");
+    if (!tooltip) return;
+
+    tooltip.innerHTML = recipeTooltipHtml(index);
+    tooltip.classList.add("visible");
+    tooltip.setAttribute("aria-hidden", "false");
+    positionRecipeTooltip(anchor);
+  }
+
+  function hideRecipeTooltip() {
+    const tooltip = $("#recipeHoverTooltip");
+    if (!tooltip) return;
+    tooltip.classList.remove("visible");
+    tooltip.setAttribute("aria-hidden", "true");
+  }
+
+  function bindDesktopElementEnhancements() {
+    document.addEventListener("mouseover", (event) => {
+      if (!desktopEnhancementsEnabled()) return;
+      const target = event.target.closest("[data-recipe-index]");
+      if (!target) return;
+      const index = Number(target.dataset.recipeIndex);
+      if (!Number.isInteger(index)) return;
+      showRecipeTooltip(index, target);
+    });
+
+    document.addEventListener("mouseout", (event) => {
+      if (!desktopEnhancementsEnabled()) return;
+      const target = event.target.closest("[data-recipe-index]");
+      if (!target) return;
+      if (event.relatedTarget && target.contains(event.relatedTarget)) return;
+      hideRecipeTooltip();
+    });
+
+    window.addEventListener("scroll", hideRecipeTooltip, { passive: true });
+    window.addEventListener("resize", hideRecipeTooltip);
+  }
+
   function renderCollection() {
     const query = norm($("#search").value);
     const sort = $("#sortOrder").value;
@@ -457,13 +624,20 @@
       return item && (!query || norm(item.name).includes(query));
     });
 
-    if (sort === "alpha") {
-      entries.sort((a, b) => element(a.index).name.localeCompare(element(b.index).name, "fr"));
-    } else if (sort === "oldest") {
-      entries.sort((a, b) => a.timestamp - b.timestamp || element(a.index).name.localeCompare(element(b.index).name, "fr"));
-    } else {
-      entries.sort((a, b) => b.timestamp - a.timestamp || element(a.index).name.localeCompare(element(b.index).name, "fr"));
-    }
+    const baseSort = (a, b) => {
+      if (sort === "alpha") {
+        return element(a.index).name.localeCompare(element(b.index).name, "fr");
+      }
+      if (sort === "oldest") {
+        return a.timestamp - b.timestamp || element(a.index).name.localeCompare(element(b.index).name, "fr");
+      }
+      return b.timestamp - a.timestamp || element(a.index).name.localeCompare(element(b.index).name, "fr");
+    };
+
+    entries.sort((a, b) => {
+      const pinDiff = Number(isPinned(b.index)) - Number(isPinned(a.index));
+      return pinDiff || baseSort(a, b);
+    });
 
     const box = $("#collection");
     if (!entries.length) {
@@ -479,7 +653,22 @@
       if (first || second) classes.push("selected");
       if (first) classes.push("selectionOne");
       if (second) classes.push("selectionTwo");
-      return `<button type="button" class="${classes.join(" ")}" data-index="${index}" title="${escapeHtml(item.meta.category || "")}"><span class="emoji">${escapeHtml(item.emoji)}</span><span>${escapeHtml(item.name)}</span></button>`;
+      if (isPinned(index)) classes.push("pinned");
+
+      return `
+        <span class="elementChipWrap${isPinned(index) ? " pinned" : ""}">
+          <button
+            type="button"
+            class="${classes.join(" ")}"
+            data-index="${index}"
+            data-recipe-index="${index}"
+            title="${escapeHtml(item.meta.category || "")}"
+          >
+            <span class="emoji">${escapeHtml(item.emoji)}</span>
+            <span>${escapeHtml(item.name)}</span>
+          </button>
+          ${pinButtonHtml(index)}
+        </span>`;
     }).join("");
   }
 
@@ -1374,9 +1563,23 @@
     const items = state.elements.filter((item) => category === "__all__" || item.meta.category === category);
     const foundCount = items.filter((item) => discoveredIds.has(item.id)).length;
     $("#pokedexCount").textContent = `${foundCount} / ${items.length} découverts${category !== "__all__" ? ` · ${category}` : ""}`;
+
     $("#pokedexList").innerHTML = items.map((item) => {
       const found = discoveredIds.has(item.id);
-      return `<div class="dexItem ${found ? "found" : "locked"}" ${found ? `data-index="${item.index}" title="Cliquer pour sélectionner"` : ""}>${found ? `${escapeHtml(item.emoji)} ${escapeHtml(item.name)}` : "🔒 ???"}</div>`;
+      if (!found) {
+        return `<div class="dexItem locked">🔒 ???</div>`;
+      }
+
+      return `
+        <div
+          class="dexItem found${isPinned(item.index) ? " pinned" : ""}"
+          data-index="${item.index}"
+          data-recipe-index="${item.index}"
+          title="Cliquer pour sélectionner"
+        >
+          <span class="dexItemLabel">${escapeHtml(item.emoji)} ${escapeHtml(item.name)}</span>
+          ${pinButtonHtml(item.index)}
+        </div>`;
     }).join("");
   }
 
@@ -1477,6 +1680,7 @@
       body: `
         <p>Tous les éléments disponibles pour ta partie sont ici. Clique simplement sur deux éléments pour remplir les emplacements <strong>1</strong> et <strong>2</strong>.</p>
         <p>La recherche et les boutons de tri permettent de retrouver rapidement un élément. <strong>Tous les éléments</strong> ouvre l'annuaire complet de la base.</p>
+        <span class="tutorialMini">Sur ordinateur : survole un élément pour voir sa recette la plus simple et utilise 📌 pour le garder en tête de ta collection.</span>
       `
     },
     {
@@ -1945,10 +2149,26 @@
       $("#timerDuration").dispatchEvent(new Event("change", { bubbles: true }));
     });
     $("#collection").addEventListener("click", (event) => {
+      const pin = event.target.closest(".elementPinButton");
+      if (pin) {
+        event.preventDefault();
+        event.stopPropagation();
+        togglePinned(Number(pin.dataset.pinIndex));
+        return;
+      }
+
       const button = event.target.closest(".elementChip");
       if (button) choose(Number(button.dataset.index));
     });
     $("#pokedexList").addEventListener("click", (event) => {
+      const pin = event.target.closest(".elementPinButton");
+      if (pin) {
+        event.preventDefault();
+        event.stopPropagation();
+        togglePinned(Number(pin.dataset.pinIndex));
+        return;
+      }
+
       const item = event.target.closest(".dexItem.found");
       if (item) choose(Number(item.dataset.index));
     });
@@ -2002,6 +2222,7 @@
     $("#resetFree").addEventListener("click", resetFreeProgress);
     $("#pokedexCategory").addEventListener("change", renderPokedex);
     bindTutorialEvents();
+    bindDesktopElementEnhancements();
   }
 
   async function init() {

@@ -647,3 +647,167 @@ body.tutorialOpen .tutorialReplayButton{opacity:0;pointer-events:none}
     background:linear-gradient(180deg,transparent,#202020 28%);
   }
 }
+
+
+/* ===== Épinglage + recette au survol (ordinateur uniquement) ===== */
+.elementChipWrap{
+  position:relative;
+  display:inline-flex;
+  max-width:100%;
+}
+.elementChipWrap .elementChip{
+  max-width:100%;
+}
+.elementPinButton{
+  display:none;
+}
+.recipeHoverTooltip{
+  display:none;
+}
+
+@media (hover:hover) and (pointer:fine) and (min-width:769px){
+  .elementChipWrap.pinned .elementChip,
+  .dexItem.found.pinned{
+    border-color:rgba(255,159,28,.72);
+    box-shadow:0 0 0 1px rgba(255,159,28,.10),0 0 16px rgba(255,159,28,.08);
+  }
+
+  .elementPinButton{
+    position:absolute;
+    z-index:3;
+    top:-8px;
+    right:-8px;
+    display:grid;
+    place-items:center;
+    width:20px;
+    height:20px;
+    padding:0;
+    border:1px solid rgba(255,255,255,.22);
+    border-radius:999px;
+    background:#252525;
+    color:#dad6cf;
+    font-size:10px;
+    line-height:1;
+    cursor:pointer;
+    opacity:0;
+    transform:scale(.88);
+    box-shadow:0 5px 12px rgba(0,0,0,.32);
+    transition:opacity .12s ease,transform .12s ease,border-color .12s ease,background .12s ease;
+  }
+
+  .elementChipWrap:hover .elementPinButton,
+  .dexItem.found:hover .elementPinButton,
+  .elementPinButton:focus-visible,
+  .elementPinButton.pinned{
+    opacity:1;
+    transform:scale(1);
+  }
+
+  .elementPinButton:hover,
+  .elementPinButton:focus-visible,
+  .elementPinButton.pinned{
+    border-color:rgba(255,159,28,.78);
+    background:#31271a;
+    outline:none;
+  }
+
+  .dexItem.found{
+    position:relative;
+    cursor:pointer;
+    padding-right:27px;
+  }
+
+  .dexItemLabel{
+    display:block;
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+
+  .dexItem .elementPinButton{
+    top:50%;
+    right:5px;
+    transform:translateY(-50%) scale(.88);
+  }
+
+  .dexItem.found:hover .elementPinButton,
+  .dexItem .elementPinButton:focus-visible,
+  .dexItem .elementPinButton.pinned{
+    transform:translateY(-50%) scale(1);
+  }
+
+  .recipeHoverTooltip{
+    position:fixed;
+    z-index:9990;
+    display:block;
+    width:min(330px,calc(100vw - 24px));
+    padding:12px 13px;
+    border:1px solid rgba(18,233,255,.34);
+    border-radius:12px;
+    background:
+      radial-gradient(circle at 100% 0,rgba(18,233,255,.08),transparent 38%),
+      #202020;
+    color:#f6f3ed;
+    box-shadow:0 14px 34px rgba(0,0,0,.48);
+    pointer-events:none;
+    opacity:0;
+    visibility:hidden;
+    transform:translateY(4px);
+    transition:opacity .1s ease,transform .1s ease,visibility .1s ease;
+  }
+
+  .recipeHoverTooltip.visible{
+    opacity:1;
+    visibility:visible;
+    transform:translateY(0);
+  }
+
+  .recipeTooltipKicker{
+    display:block;
+    margin-bottom:5px;
+    color:#9e9991;
+    font-family:"Kode Mono",ui-monospace,monospace;
+    font-size:8px;
+    letter-spacing:.1em;
+  }
+
+  .recipeTooltipTitle{
+    display:block;
+    margin-bottom:9px;
+    font-size:13px;
+    font-weight:600;
+  }
+
+  .recipeTooltipFormula{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+    align-items:center;
+    gap:7px;
+    padding:9px;
+    border:1px solid rgba(255,255,255,.10);
+    border-radius:9px;
+    background:#171717;
+    font-size:10px;
+  }
+
+  .recipeTooltipFormula span{
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+
+  .recipeTooltipFormula b{
+    color:var(--cyan);
+    font-size:12px;
+  }
+
+  .recipeTooltipAlternatives,
+  .recipeTooltipNote{
+    display:block;
+    margin-top:7px;
+    color:#aaa59d;
+    font-size:9px;
+  }
+}
