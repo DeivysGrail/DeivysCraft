@@ -1260,19 +1260,10 @@
     chooseRandomTarget(true);
   }
 
-  function allRecipeRows() {
-    return Array.from(state.recipes.values())
-      .map((rec) => ({
-        a: element(rec.a),
-        b: element(rec.b),
-        r: element(rec.r)
-      }))
-      .filter((row) => row.a && row.b && row.r)
-      .sort((x, y) =>
-        x.r.name.localeCompare(y.r.name, "fr", { sensitivity: "base" }) ||
-        x.a.name.localeCompare(y.a.name, "fr", { sensitivity: "base" }) ||
-        x.b.name.localeCompare(y.b.name, "fr", { sensitivity: "base" })
-      );
+  function allElementsRows() {
+    return state.elements
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }));
   }
 
   function renderRecipesDirectory() {
@@ -1281,25 +1272,35 @@
     if (!list || !count) return;
 
     const query = norm($("#recipesSearch")?.value || "");
-    const rows = allRecipeRows().filter(({ a, b, r }) => {
+    const rows = allElementsRows().filter((item) => {
       if (!query) return true;
-      return norm(a.name).includes(query) ||
-        norm(b.name).includes(query) ||
-        norm(r.name).includes(query) ||
-        norm(`${a.name} ${b.name} ${r.name}`).includes(query);
+      const category = item.meta?.category || "";
+      const universe = item.meta?.universe || "";
+      const tags = Array.isArray(item.meta?.tags) ? item.meta.tags.join(" ") : "";
+      return norm(item.name).includes(query) ||
+        norm(category).includes(query) ||
+        norm(universe).includes(query) ||
+        norm(tags).includes(query);
     });
 
-    count.textContent = `${rows.length} recette${rows.length > 1 ? "s" : ""}`;
+    count.textContent = `${rows.length} élément${rows.length > 1 ? "s" : ""}`;
     list.innerHTML = rows.length
-      ? rows.map(({ a, b, r }) => `
-          <div class="recipeRow" role="listitem" title="${escapeHtml(a.name)} + ${escapeHtml(b.name)} = ${escapeHtml(r.name)}">
-            <span class="recipePart">${escapeHtml(a.emoji)} ${escapeHtml(a.name)}</span>
-            <span class="recipeOperator">+</span>
-            <span class="recipePart">${escapeHtml(b.emoji)} ${escapeHtml(b.name)}</span>
-            <span class="recipeOperator recipeArrow">→</span>
-            <span class="recipeResult">${escapeHtml(r.emoji)} ${escapeHtml(r.name)}</span>
-          </div>`).join("")
-      : `<div class="recipesEmpty">Aucune recette ne correspond à cette recherche.</div>`;
+      ? rows.map((item) => {
+          const category = item.meta?.category || "À classer";
+          const universe = item.meta?.universe || "";
+          return `
+            <div class="elementDirectoryRow" role="listitem" title="${escapeHtml(item.name)}">
+              <div class="elementDirectoryIdentity">
+                <span class="elementDirectoryEmoji">${escapeHtml(item.emoji)}</span>
+                <span class="elementDirectoryName">${escapeHtml(item.name)}</span>
+              </div>
+              <div class="elementDirectoryMeta">
+                <span>${escapeHtml(category)}</span>
+                ${universe ? `<span>${escapeHtml(universe)}</span>` : ""}
+              </div>
+            </div>`;
+        }).join("")
+      : `<div class="recipesEmpty">Aucun élément ne correspond à cette recherche.</div>`;
   }
 
   function openRecipesModal() {
