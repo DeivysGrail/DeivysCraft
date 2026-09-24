@@ -834,3 +834,5 @@ button{color:inherit}
     flex-basis:36px;
   }
 }
+
+body.modalOpen{overflow:hidden}
