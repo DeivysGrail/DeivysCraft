@@ -229,7 +229,7 @@
         <div>
           <span class="eyebrow">BASE DE DONNÉES</span>
           <h2 id="recipesModalTitle">Tous les éléments</h2>
-          <p id="recipesCount" class="recipesCount">0 recette</p>
+          <p id="recipesCount" class="recipesCount">0 élément</p>
         </div>
         <button id="recipesClose" class="modalCloseButton" type="button" aria-label="Fermer">×</button>
       </div>
@@ -282,6 +282,32 @@
         <button id="newTargetAfterDefeat" class="ghostButton" type="button">Nouvel objectif</button>
       </div>
     </div>
+  </div>
+
+
+  <button id="tutorialReplay" class="tutorialReplayButton" type="button" aria-label="Revoir le tutoriel" title="Revoir le tutoriel">?</button>
+
+  <div id="tutorialLayer" class="tutorialLayer hidden" aria-live="polite">
+    <div id="tutorialShield" class="tutorialShield" aria-hidden="true"></div>
+    <div id="tutorialFocus" class="tutorialFocus" aria-hidden="true"></div>
+
+    <section id="tutorialCard" class="tutorialCard" role="dialog" aria-modal="true" aria-labelledby="tutorialTitle">
+      <div class="tutorialHeader">
+        <span id="tutorialCounter" class="tutorialCounter">1 / 12</span>
+        <button id="tutorialSkip" class="tutorialSkip" type="button">Passer le tuto</button>
+      </div>
+
+      <div class="tutorialProgress" aria-hidden="true"><span id="tutorialProgressBar"></span></div>
+
+      <span id="tutorialKicker" class="eyebrow">BIENVENUE</span>
+      <h2 id="tutorialTitle">Comment jouer ?</h2>
+      <div id="tutorialBody" class="tutorialBody"></div>
+
+      <div class="tutorialActions">
+        <button id="tutorialPrevious" class="ghostButton tutorialPrevious" type="button">← Retour</button>
+        <button id="tutorialNext" class="accentButton tutorialNext" type="button">Suivant →</button>
+      </div>
+    </section>
   </div>
 
   <script src="./game.js"></script>
