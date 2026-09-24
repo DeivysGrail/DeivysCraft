@@ -1260,6 +1260,63 @@
     chooseRandomTarget(true);
   }
 
+  function allRecipeRows() {
+    return Array.from(state.recipes.values())
+      .map((rec) => ({
+        a: element(rec.a),
+        b: element(rec.b),
+        r: element(rec.r)
+      }))
+      .filter((row) => row.a && row.b && row.r)
+      .sort((x, y) =>
+        x.r.name.localeCompare(y.r.name, "fr", { sensitivity: "base" }) ||
+        x.a.name.localeCompare(y.a.name, "fr", { sensitivity: "base" }) ||
+        x.b.name.localeCompare(y.b.name, "fr", { sensitivity: "base" })
+      );
+  }
+
+  function renderRecipesDirectory() {
+    const list = $("#recipesList");
+    const count = $("#recipesCount");
+    if (!list || !count) return;
+
+    const query = norm($("#recipesSearch")?.value || "");
+    const rows = allRecipeRows().filter(({ a, b, r }) => {
+      if (!query) return true;
+      return norm(a.name).includes(query) ||
+        norm(b.name).includes(query) ||
+        norm(r.name).includes(query) ||
+        norm(`${a.name} ${b.name} ${r.name}`).includes(query);
+    });
+
+    count.textContent = `${rows.length} recette${rows.length > 1 ? "s" : ""}`;
+    list.innerHTML = rows.length
+      ? rows.map(({ a, b, r }) => `
+          <div class="recipeRow" role="listitem" title="${escapeHtml(a.name)} + ${escapeHtml(b.name)} = ${escapeHtml(r.name)}">
+            <span class="recipePart">${escapeHtml(a.emoji)} ${escapeHtml(a.name)}</span>
+            <span class="recipeOperator">+</span>
+            <span class="recipePart">${escapeHtml(b.emoji)} ${escapeHtml(b.name)}</span>
+            <span class="recipeOperator recipeArrow">→</span>
+            <span class="recipeResult">${escapeHtml(r.emoji)} ${escapeHtml(r.name)}</span>
+          </div>`).join("")
+      : `<div class="recipesEmpty">Aucune recette ne correspond à cette recherche.</div>`;
+  }
+
+  function openRecipesModal() {
+    const modal = $("#recipesModal");
+    if (!modal) return;
+    $("#recipesSearch").value = "";
+    renderRecipesDirectory();
+    modal.classList.remove("hidden");
+    document.body.classList.add("modalOpen");
+    window.setTimeout(() => $("#recipesSearch")?.focus(), 60);
+  }
+
+  function closeRecipesModal() {
+    $("#recipesModal")?.classList.add("hidden");
+    document.body.classList.remove("modalOpen");
+  }
+
   function renderRunStats() {
     const run = state.run;
     $("#runCrafts").textContent = run?.crafts ?? 0;
@@ -1433,6 +1490,15 @@
       renderCollection();
     }));
     $("#clearSelection").addEventListener("click", () => { state.selected = []; renderSlots(); });
+    $("#allRecipesButton")?.addEventListener("click", openRecipesModal);
+    $("#recipesClose")?.addEventListener("click", closeRecipesModal);
+    $("#recipesSearch")?.addEventListener("input", renderRecipesDirectory);
+    $("#recipesModal")?.addEventListener("click", (event) => {
+      if (event.target === $("#recipesModal")) closeRecipesModal();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !$("#recipesModal")?.classList.contains("hidden")) closeRecipesModal();
+    });
     $("#randomTarget").addEventListener("click", () => chooseRandomTarget(true));
     $("#targetCategory").addEventListener("change", () => {
       syncPillState("#categoryPills", $("#targetCategory").value || "__all__");
