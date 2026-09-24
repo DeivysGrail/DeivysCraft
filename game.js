@@ -12,6 +12,7 @@
   const RUN_ARCHIVE_LIMIT = 40;
   const RECORDS_LIMIT = 80;
   const RUN_HISTORY_LIMIT = 300;
+  const TUTORIAL_KEY = "deivyscraft-tutorial-v1";
   const CHALLENGE_EXCLUDED_CATEGORIES = new Set(["Fondamental", "Indice"]);
   const RUN_STATUS = Object.freeze({
     READY: "ready",
@@ -1266,7 +1267,7 @@
       .sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }));
   }
 
-  function renderRecipesDirectory() {
+  function renderElementsDirectory() {
     const list = $("#recipesList");
     const count = $("#recipesCount");
     if (!list || !count) return;
@@ -1303,17 +1304,17 @@
       : `<div class="recipesEmpty">Aucun élément ne correspond à cette recherche.</div>`;
   }
 
-  function openRecipesModal() {
+  function openElementsModal() {
     const modal = $("#recipesModal");
     if (!modal) return;
     $("#recipesSearch").value = "";
-    renderRecipesDirectory();
+    renderElementsDirectory();
     modal.classList.remove("hidden");
     document.body.classList.add("modalOpen");
     window.setTimeout(() => $("#recipesSearch")?.focus(), 60);
   }
 
-  function closeRecipesModal() {
+  function closeElementsModal() {
     $("#recipesModal")?.classList.add("hidden");
     document.body.classList.remove("modalOpen");
   }
@@ -1449,6 +1450,477 @@
     renderSlots();
   }
 
+
+  const tutorialState = {
+    active: false,
+    index: 0,
+    initialMode: "free",
+    recapSnapshot: null,
+    positionTimer: null
+  };
+
+  const TUTORIAL_STEPS = [
+    {
+      kicker: "BIENVENUE DANS DEIVYSCRAFT",
+      title: "Le principe",
+      target: ".selectionArena",
+      body: `
+        <p>Le gameplay tient en une règle : <strong>choisis deux éléments à fusionner</strong>.</p>
+        <p>Si leur combinaison forme une recette, tu crées un nouvel élément. Ce nouvel élément rejoint ta collection et peut ensuite servir dans d'autres fusions.</p>
+        <span class="tutorialMini">Tu commences avec 4 éléments de base : Célébrités · Objet · Idée · Internet.</span>
+      `
+    },
+    {
+      kicker: "TON INVENTAIRE",
+      title: "La collection",
+      target: ".collectionShell",
+      body: `
+        <p>Tous les éléments disponibles pour ta partie sont ici. Clique simplement sur deux éléments pour remplir les emplacements <strong>1</strong> et <strong>2</strong>.</p>
+        <p>La recherche et les boutons de tri permettent de retrouver rapidement un élément. <strong>Tous les éléments</strong> ouvre l'annuaire complet de la base.</p>
+      `
+    },
+    {
+      kicker: "3 FAÇONS DE JOUER",
+      title: "Les modes",
+      target: ".modeTabs",
+      body: `
+        <p><strong>Mode libre</strong> sert à explorer la base sans pression.</p>
+        <p><strong>Contre la montre</strong> te donne un objectif à trouver avant la fin du minuteur. <strong>Speedrun</strong> te demande de trouver l'objectif le plus vite possible.</p>
+      `
+    },
+    {
+      kicker: "MODE LIBRE",
+      title: "Ta progression",
+      target: "#freeProgressPanel",
+      mode: "free",
+      body: `
+        <p>Ici, aucun objectif et aucun temps à battre. Tu explores les combinaisons à ton rythme.</p>
+        <p>Le panneau <strong>Progression</strong> indique combien d'éléments tu as réellement découverts et combien de crafts tu as effectués. Cette progression est sauvegardée localement.</p>
+      `
+    },
+    {
+      kicker: "MODE LIBRE",
+      title: "Le catalogue",
+      target: "#pokedexPanel",
+      mode: "free",
+      body: `
+        <p>Le <strong>Catalogue</strong> est ton Pokédex de DeivysCraft. Il montre les éléments découverts et masque ceux que tu n'as pas encore trouvés.</p>
+        <p>Tu peux filtrer par catégorie et cliquer sur un élément connu pour le sélectionner directement.</p>
+      `
+    },
+    {
+      kicker: "CONTRE LA MONTRE",
+      title: "Trouve l'objectif avant zéro",
+      target: "#challengeBar",
+      mode: "timer",
+      body: `
+        <p>Le jeu choisit un mot à trouver. Tu peux laisser <strong>toutes les catégories</strong> actives ou en choisir une pour orienter le tirage.</p>
+        <p>Choisis aussi la difficulté et la durée du compte à rebours. Le bouton 🎲 génère un nouvel objectif.</p>
+        <span class="tutorialMini">Le minuteur ne démarre qu'au premier clic sur un élément.</span>
+      `
+    },
+    {
+      kicker: "CONTRE LA MONTRE",
+      title: "Les 3 indices",
+      target: "#hintStrip",
+      mode: "timer",
+      body: `
+        <p>Les indices se débloquent dans l'ordre et deviennent de plus en plus précis.</p>
+        <p><strong>Indice 1</strong> révèle un élément utile sur le chemin. <strong>Indice 2</strong> donne l'un des ingrédients de la recette finale. <strong>Indice 3</strong> révèle la combinaison finale exacte.</p>
+        <span class="tutorialMini">Les indices utilisés sont comptabilisés dans les statistiques de ta partie.</span>
+      `
+    },
+    {
+      kicker: "PARTIE EN COURS",
+      title: "Le panneau Run",
+      target: "#runPanel",
+      mode: "timer",
+      body: `
+        <p>Ce panneau suit ta partie en direct : nombre de <strong>crafts</strong>, éléments découverts pendant le run et indices utilisés.</p>
+        <p>Tu peux aussi abandonner l'objectif actuel pour repartir sur un nouveau tirage.</p>
+      `
+    },
+    {
+      kicker: "TES PERFORMANCES",
+      title: "Meilleurs runs",
+      target: "#recordsPanel",
+      mode: "timer",
+      body: `
+        <p>Les performances réussies sont conservées dans <strong>Meilleurs runs</strong> sur cet appareil.</p>
+        <p>Tu y retrouves notamment le temps, le nombre de crafts et les indices utilisés pour comparer tes tentatives.</p>
+      `
+    },
+    {
+      kicker: "SPEEDRUN",
+      title: "Le plus vite possible",
+      target: "#challengeBar",
+      mode: "chrono",
+      body: `
+        <p>En Speedrun, pas de limite de temps : ton ennemi, c'est le chrono.</p>
+        <p>Choisis une catégorie et une difficulté si tu le souhaites, puis trouve l'objectif <strong>le plus rapidement possible</strong>. Le chrono part au premier clic et s'arrête dès que le mot est trouvé.</p>
+      `
+    },
+    {
+      kicker: "EN HAUT DE L'ÉCRAN",
+      title: "Ta progression globale",
+      target: ".compactGlobal",
+      body: `
+        <p>Ce compteur te permet de garder un œil sur le nombre d'éléments que tu as découverts dans ta progression globale.</p>
+        <p>Plus ta collection grandit, plus tu disposes de matière pour fabriquer des chemins complètement improbables.</p>
+      `
+    },
+    {
+      kicker: "APRÈS UNE VICTOIRE",
+      title: "Le récapitulatif",
+      target: "#recapModal .recapCard",
+      recapPreview: true,
+      body: `
+        <p>Une fois l'objectif trouvé, tu peux ouvrir le <strong>récapitulatif du chemin gagnant</strong>.</p>
+        <p>Il ne montre que les combinaisons réellement utiles qui t'ont mené au mot final, ainsi que les infos de ta run. Le bouton <strong>Nouvel objectif</strong> ferme ensuite le récap et relance une partie.</p>
+        <span class="tutorialMini">C'est la dernière étape. Après ça, à toi de casser la base de données.</span>
+      `
+    }
+  ];
+
+  function saveTutorialDone() {
+    try { localStorage.setItem(TUTORIAL_KEY, "done"); } catch (_) {}
+  }
+
+  function tutorialShouldAutoStart() {
+    try { return localStorage.getItem(TUTORIAL_KEY) !== "done"; }
+    catch (_) { return true; }
+  }
+
+  function showTutorialRecapPreview() {
+    const modal = $("#recapModal");
+    if (!modal) return;
+
+    if (!tutorialState.recapSnapshot) {
+      tutorialState.recapSnapshot = {
+        hidden: modal.classList.contains("hidden"),
+        title: $("#recapTitle")?.textContent || "",
+        meta: $("#recapMeta")?.innerHTML || "",
+        path: $("#recapPath")?.innerHTML || ""
+      };
+    }
+
+    $("#recapTitle").textContent = "🐱 Chat";
+    $("#recapMeta").innerHTML = `
+      <div class="recapStat accentOrange"><b>00:42.318</b><span>Temps</span></div>
+      <div class="recapStat accentCyan"><b>8</b><span>Crafts</span></div>
+      <div class="recapStat accentPink"><b>8</b><span>Utiles</span></div>
+      <div class="recapStat accentLime"><b>0</b><span>Indices</span></div>
+    `;
+    $("#recapPath").innerHTML = `
+      <div class="tutorialDemoPath">
+        <div class="pathStep">
+          <div class="stepDot">1</div>
+          <div class="stepBody">
+            <div class="stepRecipe">
+              <span class="ingredient">🌟 Célébrités</span>
+              <span class="plusSign">+</span>
+              <span class="ingredient">🌟 Célébrités</span>
+            </div>
+            <div class="resultRow">
+              <span class="arrow">→</span>
+              <span class="resultName">👤 Personne</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pathStep">
+          <div class="stepDot">2</div>
+          <div class="stepBody">
+            <div class="stepRecipe">
+              <span class="ingredient">👤 Personne</span>
+              <span class="plusSign">+</span>
+              <span class="ingredient">👤 Personne</span>
+            </div>
+            <div class="resultRow">
+              <span class="arrow">→</span>
+              <span class="resultName">🌱 Vie</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pathStep">
+          <div class="stepDot">3</div>
+          <div class="stepBody">
+            <div class="stepRecipe">
+              <span class="ingredient">📦 Objet</span>
+              <span class="plusSign">+</span>
+              <span class="ingredient">💡 Idée</span>
+            </div>
+            <div class="resultRow">
+              <span class="arrow">→</span>
+              <span class="resultName">💻 Technologie</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pathStep">
+          <div class="stepDot">4</div>
+          <div class="stepBody">
+            <div class="stepRecipe">
+              <span class="ingredient">💡 Idée</span>
+              <span class="plusSign">+</span>
+              <span class="ingredient">🌱 Vie</span>
+            </div>
+            <div class="resultRow">
+              <span class="arrow">→</span>
+              <span class="resultName">🌿 Nature</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pathStep">
+          <div class="stepDot">5</div>
+          <div class="stepBody">
+            <div class="stepRecipe">
+              <span class="ingredient">💻 Technologie</span>
+              <span class="plusSign">+</span>
+              <span class="ingredient">🌿 Nature</span>
+            </div>
+            <div class="resultRow">
+              <span class="arrow">→</span>
+              <span class="resultName">🔋 Énergie</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pathStep">
+          <div class="stepDot">6</div>
+          <div class="stepBody">
+            <div class="stepRecipe">
+              <span class="ingredient">🌱 Vie</span>
+              <span class="plusSign">+</span>
+              <span class="ingredient">🔋 Énergie</span>
+            </div>
+            <div class="resultRow">
+              <span class="arrow">→</span>
+              <span class="resultName">🏃 Mouvement</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pathStep">
+          <div class="stepDot">7</div>
+          <div class="stepBody">
+            <div class="stepRecipe">
+              <span class="ingredient">🌱 Vie</span>
+              <span class="plusSign">+</span>
+              <span class="ingredient">🏃 Mouvement</span>
+            </div>
+            <div class="resultRow">
+              <span class="arrow">→</span>
+              <span class="resultName">🐾 Animal</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pathStep">
+          <div class="stepDot">8</div>
+          <div class="stepBody">
+            <div class="stepRecipe">
+              <span class="ingredient">🌐 Internet</span>
+              <span class="plusSign">+</span>
+              <span class="ingredient">🐾 Animal</span>
+            </div>
+            <div class="resultRow">
+              <span class="arrow">→</span>
+              <span class="resultName">🐱 Chat</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    modal.classList.remove("hidden");
+  }
+
+  function hideTutorialRecapPreview() {
+    const modal = $("#recapModal");
+    const snapshot = tutorialState.recapSnapshot;
+    if (!modal || !snapshot) return;
+
+    $("#recapTitle").textContent = snapshot.title;
+    $("#recapMeta").innerHTML = snapshot.meta;
+    $("#recapPath").innerHTML = snapshot.path;
+    modal.classList.toggle("hidden", snapshot.hidden);
+    tutorialState.recapSnapshot = null;
+  }
+
+  function tutorialTargetElement(step) {
+    return step?.target ? document.querySelector(step.target) : null;
+  }
+
+  function positionTutorial() {
+    if (!tutorialState.active) return;
+    const step = TUTORIAL_STEPS[tutorialState.index];
+    const target = tutorialTargetElement(step);
+    const focus = $("#tutorialFocus");
+    const card = $("#tutorialCard");
+    if (!focus || !card) return;
+
+    if (!target) {
+      focus.style.opacity = "0";
+      card.style.left = `${Math.max(16, (window.innerWidth - card.offsetWidth) / 2)}px`;
+      card.style.top = `${Math.max(16, (window.innerHeight - card.offsetHeight) / 2)}px`;
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    const pad = window.innerWidth <= 760 ? 7 : 10;
+    const left = Math.max(6, rect.left - pad);
+    const top = Math.max(6, rect.top - pad);
+    const right = Math.min(window.innerWidth - 6, rect.right + pad);
+    const bottom = Math.min(window.innerHeight - 6, rect.bottom + pad);
+
+    focus.style.opacity = "1";
+    focus.style.left = `${left}px`;
+    focus.style.top = `${top}px`;
+    focus.style.width = `${Math.max(0, right - left)}px`;
+    focus.style.height = `${Math.max(0, bottom - top)}px`;
+
+    if (window.innerWidth <= 760) {
+      card.style.left = "";
+      card.style.top = "";
+      return;
+    }
+
+    const gap = 18;
+    const margin = 16;
+    const cardWidth = card.offsetWidth;
+    const cardHeight = card.offsetHeight;
+
+    let cardLeft = Math.min(Math.max(rect.left, margin), window.innerWidth - cardWidth - margin);
+    let cardTop = rect.bottom + gap;
+
+    if (cardTop + cardHeight > window.innerHeight - margin) {
+      cardTop = rect.top - cardHeight - gap;
+    }
+    if (cardTop < margin) {
+      const roomRight = window.innerWidth - rect.right;
+      const roomLeft = rect.left;
+      if (roomRight >= cardWidth + gap) {
+        cardLeft = rect.right + gap;
+        cardTop = Math.min(Math.max(rect.top, margin), window.innerHeight - cardHeight - margin);
+      } else if (roomLeft >= cardWidth + gap) {
+        cardLeft = rect.left - cardWidth - gap;
+        cardTop = Math.min(Math.max(rect.top, margin), window.innerHeight - cardHeight - margin);
+      } else {
+        cardTop = Math.max(margin, window.innerHeight - cardHeight - margin);
+      }
+    }
+
+    card.style.left = `${cardLeft}px`;
+    card.style.top = `${cardTop}px`;
+  }
+
+  function renderTutorialStep() {
+    if (!tutorialState.active) return;
+
+    hideTutorialRecapPreview();
+
+    const step = TUTORIAL_STEPS[tutorialState.index];
+    if (!step) return;
+
+    if (step.mode && state.mode !== step.mode) {
+      setMode(step.mode);
+    }
+
+    if (step.recapPreview) showTutorialRecapPreview();
+
+    $("#tutorialCounter").textContent = `${tutorialState.index + 1} / ${TUTORIAL_STEPS.length}`;
+    $("#tutorialProgressBar").style.width = `${((tutorialState.index + 1) / TUTORIAL_STEPS.length) * 100}%`;
+    $("#tutorialKicker").textContent = step.kicker;
+    $("#tutorialTitle").textContent = step.title;
+    $("#tutorialBody").innerHTML = step.body;
+    $("#tutorialPrevious").disabled = tutorialState.index === 0;
+    $("#tutorialNext").textContent = tutorialState.index === TUTORIAL_STEPS.length - 1 ? "Jouer ✓" : "Suivant →";
+
+    const target = tutorialTargetElement(step);
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    }
+
+    window.clearTimeout(tutorialState.positionTimer);
+    tutorialState.positionTimer = window.setTimeout(positionTutorial, 300);
+    window.requestAnimationFrame(positionTutorial);
+  }
+
+  function startTutorial(force = false) {
+    if (!state.db || tutorialState.active) return;
+
+    if (force && runIs(RUN_STATUS.PLAYING)) {
+      const ok = window.confirm("Revoir le tutoriel mettra fin à la partie en cours. Continuer ?");
+      if (!ok) return;
+    }
+
+    tutorialState.active = true;
+    tutorialState.index = 0;
+    tutorialState.initialMode = state.mode;
+    $("#tutorialLayer").classList.remove("hidden");
+    document.body.classList.add("tutorialOpen");
+    renderTutorialStep();
+  }
+
+  function finishTutorial(markDone = true) {
+    if (!tutorialState.active) return;
+
+    hideTutorialRecapPreview();
+    window.clearTimeout(tutorialState.positionTimer);
+    tutorialState.active = false;
+    $("#tutorialLayer").classList.add("hidden");
+    document.body.classList.remove("tutorialOpen");
+
+    if (markDone) saveTutorialDone();
+
+    if (tutorialState.initialMode && state.mode !== tutorialState.initialMode) {
+      setMode(tutorialState.initialMode);
+    }
+  }
+
+  function nextTutorialStep() {
+    if (!tutorialState.active) return;
+    if (tutorialState.index >= TUTORIAL_STEPS.length - 1) {
+      finishTutorial(true);
+      return;
+    }
+    tutorialState.index += 1;
+    renderTutorialStep();
+  }
+
+  function previousTutorialStep() {
+    if (!tutorialState.active || tutorialState.index <= 0) return;
+    tutorialState.index -= 1;
+    renderTutorialStep();
+  }
+
+  function bindTutorialEvents() {
+    $("#tutorialNext")?.addEventListener("click", nextTutorialStep);
+    $("#tutorialPrevious")?.addEventListener("click", previousTutorialStep);
+    $("#tutorialSkip")?.addEventListener("click", () => finishTutorial(true));
+    $("#tutorialReplay")?.addEventListener("click", () => startTutorial(true));
+
+    window.addEventListener("resize", positionTutorial);
+    window.addEventListener("scroll", positionTutorial, { passive: true });
+
+    document.addEventListener("keydown", (event) => {
+      if (!tutorialState.active) return;
+      if (event.key === "ArrowRight" || event.key === "Enter") {
+        event.preventDefault();
+        nextTutorialStep();
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        previousTutorialStep();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        finishTutorial(true);
+      }
+    });
+  }
+
+
   function bindEvents() {
     $$(".modeTab").forEach((button) => button.addEventListener("click", () => setMode(button.dataset.mode)));
     $("#categoryPills")?.addEventListener("click", (event) => {
@@ -1491,14 +1963,14 @@
       renderCollection();
     }));
     $("#clearSelection").addEventListener("click", () => { state.selected = []; renderSlots(); });
-    $("#allRecipesButton")?.addEventListener("click", openRecipesModal);
-    $("#recipesClose")?.addEventListener("click", closeRecipesModal);
-    $("#recipesSearch")?.addEventListener("input", renderRecipesDirectory);
+    $("#allRecipesButton")?.addEventListener("click", openElementsModal);
+    $("#recipesClose")?.addEventListener("click", closeElementsModal);
+    $("#recipesSearch")?.addEventListener("input", renderElementsDirectory);
     $("#recipesModal")?.addEventListener("click", (event) => {
-      if (event.target === $("#recipesModal")) closeRecipesModal();
+      if (event.target === $("#recipesModal")) closeElementsModal();
     });
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && !$("#recipesModal")?.classList.contains("hidden")) closeRecipesModal();
+      if (event.key === "Escape" && !$("#recipesModal")?.classList.contains("hidden")) closeElementsModal();
     });
     $("#randomTarget").addEventListener("click", () => chooseRandomTarget(true));
     $("#targetCategory").addEventListener("change", () => {
@@ -1529,6 +2001,7 @@
     $("#abandonRun").addEventListener("click", abandonRun);
     $("#resetFree").addEventListener("click", resetFreeProgress);
     $("#pokedexCategory").addEventListener("change", renderPokedex);
+    bindTutorialEvents();
   }
 
   async function init() {
@@ -1565,6 +2038,10 @@
     setMode(preferred);
     persistSettingsFromUI();
 
+    if (tutorialShouldAutoStart()) {
+      window.setTimeout(() => startTutorial(false), 450);
+    }
+
     window.addEventListener("beforeunload", saveAppState);
   }
 
@@ -1573,4 +2050,5 @@
     $("#dbStatus").textContent = "Erreur de chargement";
     setMessage(`${error.message} · Lance index.html via le serveur local WebStorm, pas en file://.`, "error", true);
   });
+})();
 })();
