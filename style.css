@@ -457,3 +457,138 @@ button{color:inherit}
   .recapCard{padding-bottom:24px;}
   .recapTwitch{position:static;display:flex;justify-content:flex-end;margin-top:14px;}
 }
+
+/* ===== Responsive polish: compact categories + icon sorting ===== */
+.sortNativeSelect{
+  position:absolute!important;
+  width:1px!important;
+  height:1px!important;
+  padding:0!important;
+  margin:-1px!important;
+  overflow:hidden!important;
+  clip:rect(0,0,0,0)!important;
+  white-space:nowrap!important;
+  border:0!important;
+}
+.sortControls{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex:0 0 auto;
+}
+.sortIconButton{
+  width:38px;
+  height:38px;
+  padding:0;
+  border:1px solid rgba(18,233,255,.34);
+  background:#171717;
+  color:#d9d7d1;
+  border-radius:10px;
+  display:grid;
+  place-items:center;
+  cursor:pointer;
+  transition:transform .12s ease,border-color .12s ease,background .12s ease,box-shadow .12s ease,color .12s ease;
+}
+.sortIconButton:hover{
+  transform:translateY(-1px);
+  border-color:rgba(18,233,255,.72);
+}
+.sortIconButton.active{
+  color:#fff;
+  border-color:rgba(237,32,255,.72);
+  background:linear-gradient(180deg,rgba(237,32,255,.13),rgba(18,233,255,.08)),#171717;
+  box-shadow:0 0 12px rgba(18,233,255,.08);
+}
+.sortIconButton svg{
+  width:18px;
+  height:18px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.8;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.sortIconButton span{
+  font-family:"Kode Mono",ui-monospace,monospace;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:-.08em;
+}
+
+@media (max-width:1180px){
+  .setupCategories{
+    min-width:0;
+  }
+  #categoryPills{
+    display:grid;
+    grid-template-rows:repeat(2,max-content);
+    grid-auto-flow:column;
+    grid-auto-columns:max-content;
+    gap:8px;
+    max-width:100%;
+    overflow-x:auto;
+    overflow-y:hidden;
+    padding:1px 2px 8px;
+    scrollbar-width:thin;
+    scrollbar-color:rgba(18,233,255,.35) transparent;
+    overscroll-behavior-inline:contain;
+  }
+  #categoryPills::-webkit-scrollbar{height:5px}
+  #categoryPills::-webkit-scrollbar-track{background:transparent}
+  #categoryPills::-webkit-scrollbar-thumb{
+    background:linear-gradient(90deg,rgba(18,233,255,.5),rgba(237,32,255,.5));
+    border-radius:999px;
+  }
+  #categoryPills .choicePill{
+    min-height:30px;
+    padding:6px 11px;
+    font-size:10px;
+  }
+}
+
+@media (max-width:760px){
+  .setupCategories{
+    padding-bottom:2px;
+  }
+  #categoryPills{
+    grid-template-rows:repeat(2,max-content);
+    margin-inline:-2px;
+  }
+  .collectionToolbar{
+    grid-template-columns:minmax(0,1fr) auto auto!important;
+    gap:7px!important;
+  }
+  .collectionToolbar input{
+    min-width:0!important;
+    width:100%!important;
+    padding-inline:13px!important;
+  }
+  .sortControls{
+    gap:4px;
+  }
+  .sortIconButton{
+    width:35px;
+    height:35px;
+    border-radius:9px;
+  }
+  .ghostButton.subtle{
+    min-width:0;
+    padding-inline:10px;
+    white-space:nowrap;
+  }
+}
+
+@media (max-width:470px){
+  .collectionToolbar{
+    grid-template-columns:minmax(0,1fr) auto!important;
+  }
+  .ghostButton.subtle{
+    grid-column:1/-1;
+    justify-self:end;
+    padding-block:6px;
+  }
+  .sortIconButton{
+    width:34px;
+    height:34px;
+  }
+}
