@@ -122,7 +122,18 @@
         <div class="collectionShell">
           <div class="collectionToolbar">
             <input id="search" type="search" placeholder="Rechercher un mot">
-            <select id="sortOrder" title="Trier les éléments">
+            <div class="sortControls" role="group" aria-label="Trier les éléments">
+              <button class="sortIconButton active" type="button" data-sort="newest" title="Découverts récemment" aria-label="Découverts récemment">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5l3 2M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9Z"/></svg>
+              </button>
+              <button class="sortIconButton" type="button" data-sort="oldest" title="Découverts en premier" aria-label="Découverts en premier">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16v-5l-3-2M12 21a9 9 0 1 0-9-9 9 9 0 0 0 9 9Z"/></svg>
+              </button>
+              <button class="sortIconButton" type="button" data-sort="alpha" title="Ordre alphabétique" aria-label="Ordre alphabétique">
+                <span aria-hidden="true">A↕Z</span>
+              </button>
+            </div>
+            <select id="sortOrder" class="sortNativeSelect" tabindex="-1" aria-hidden="true">
               <option value="newest">Découverte : récent → ancien</option>
               <option value="oldest">Découverte : ancien → récent</option>
               <option value="alpha">Ordre alphabétique</option>
