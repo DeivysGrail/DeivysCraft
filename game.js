@@ -1423,7 +1423,15 @@
       if (item) choose(Number(item.dataset.index));
     });
     $("#search").addEventListener("input", renderCollection);
-    $("#sortOrder").addEventListener("change", renderCollection);
+    $("#sortOrder").addEventListener("change", () => {
+      $(".sortIconButton").forEach((button) => button.classList.toggle("active", button.dataset.sort === $("#sortOrder").value));
+      renderCollection();
+    });
+    $(".sortIconButton").forEach((button) => button.addEventListener("click", () => {
+      $("#sortOrder").value = button.dataset.sort;
+      $(".sortIconButton").forEach((item) => item.classList.toggle("active", item === button));
+      renderCollection();
+    }));
     $("#clearSelection").addEventListener("click", () => { state.selected = []; renderSlots(); });
     $("#randomTarget").addEventListener("click", () => chooseRandomTarget(true));
     $("#targetCategory").addEventListener("change", () => {
