@@ -1424,12 +1424,12 @@
     });
     $("#search").addEventListener("input", renderCollection);
     $("#sortOrder").addEventListener("change", () => {
-      $(".sortIconButton").forEach((button) => button.classList.toggle("active", button.dataset.sort === $("#sortOrder").value));
+      $$(".sortIconButton").forEach((button) => button.classList.toggle("active", button.dataset.sort === $("#sortOrder").value));
       renderCollection();
     });
-    $(".sortIconButton").forEach((button) => button.addEventListener("click", () => {
+    $$(".sortIconButton").forEach((button) => button.addEventListener("click", () => {
       $("#sortOrder").value = button.dataset.sort;
-      $(".sortIconButton").forEach((item) => item.classList.toggle("active", item === button));
+      $$(".sortIconButton").forEach((item) => item.classList.toggle("active", item === button));
       renderCollection();
     }));
     $("#clearSelection").addEventListener("click", () => { state.selected = []; renderSlots(); });
