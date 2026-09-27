@@ -94,7 +94,14 @@
     </section>
 
     <section class="playLayout">
-      <section class="craftPanel boardFrame">
+      <section id="craftBoard" class="craftPanel boardFrame">
+        <div class="interactionBar">
+          <span class="interactionLabel">Méthode de fusion</span>
+          <div class="interactionSwitch" role="group" aria-label="Choisir la méthode de fusion">
+            <button type="button" data-interaction="classic" class="active" aria-pressed="true">Cliquer sur 2 éléments</button>
+            <button type="button" data-interaction="canvas" aria-pressed="false">Canvas · glisser-déposer</button>
+          </div>
+        </div>
         <div class="selectionArena">
           <div id="slot0" class="slot empty">
             <span class="slotIndex">1</span>
@@ -117,6 +124,13 @@
           </div>
         </div>
 
+        <section id="canvasMode" class="canvasMode" aria-label="Espace de craft">
+          <div class="canvasIntro"><strong>Clique ou glisse un élément ici, puis superpose-le à un autre pour fusionner.</strong><span>1 clic : supprimer · 2 clics : dupliquer · 3 clics : fusion avec lui-même</span></div>
+          <div id="canvasSurface" class="canvasSurface" aria-label="Canvas de craft">
+            <div id="canvasEmpty" class="canvasEmpty"><div><b>Ton espace de craft est prêt</b>Glisse un élément depuis ta collection,<br>ou touche-le pour le déposer ici.</div></div>
+          </div>
+          <div class="canvasToolbar"><span id="canvasCount">0 élément posé</span><button id="clearCanvas" class="ghostButton subtle" type="button">Vider le canvas</button></div>
+        </section>
         <div id="message" class="message"></div>
 
         <div class="collectionShell">
@@ -314,5 +328,9 @@
   </div>
 
   <script src="./game.js"></script>
+  <script>
+    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>

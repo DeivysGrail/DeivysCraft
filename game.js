@@ -2,7 +2,8 @@
   "use strict";
 
   const CORE_URL = "./src/data/craft-db.json";
-  const BASE_NAMES = ["Célébrités", "Objet", "Idée", "Internet"];
+  const PACKED_URL = "./src/data/craft-full.bin";
+  const BASE_NAMES = ["Personne", "Objet", "Idée", "Internet"];
   const APP_SAVE_KEY = "deivyscraft-save-v3";
   const APP_SAVE_VERSION = 3;
   const FREE_KEY = "deivyscraft-free-v2";          // legacy v2
@@ -50,6 +51,13 @@
     bases: [],
     mode: "free",
     selected: [],
+    interactionMode: "classic",
+    canvasItems: [],
+    canvasNextId: 1,
+    canvasPointer: null,
+    collectionPointer: null,
+    lastCanvasTap: null,
+    suppressCollectionClick: false,
     free: { discovered: {}, craftCount: 0 },
     sessionDiscovered: new Map(),
     sessionHistory: [],
@@ -61,7 +69,8 @@
       difficulty: "__all__",
       category: "__all__",
       timerDuration: "180",
-      customTimer: "120"
+      customTimer: "120",
+      interactionMode: "classic"
     },
     run: null,
     clockTimer: null,
@@ -158,7 +167,8 @@
       if (!state.byName.has(norm(element.name))) state.byName.set(norm(element.name), element.index);
       state.byId.set(element.id, element.index);
     });
-    state.bases = BASE_NAMES.map((name) => state.byName.get(norm(name))).filter(Number.isInteger);
+    const configuredBases = Array.isArray(db.base) && db.base.length ? db.base : BASE_NAMES;
+    state.bases = configuredBases.map((name) => state.byName.get(norm(name))).filter(Number.isInteger);
   }
 
   function computeDepths() {
@@ -217,7 +227,8 @@
       difficulty,
       category: typeof source.category === "string" && source.category ? source.category : defaults.category,
       timerDuration,
-      customTimer: String(custom)
+      customTimer: String(custom),
+      interactionMode: source.interactionMode === "canvas" ? "canvas" : "classic"
     };
   }
 
@@ -311,11 +322,18 @@
             : []
         );
         state.settings = normalizeSettings(parsed.settings);
+        state.interactionMode = state.settings.interactionMode;
+        state.canvasItems = Array.isArray(parsed.canvasItems)
+          ? parsed.canvasItems.filter((item) => Number.isInteger(item.index) && item.index >= 0 && item.index < state.elements.length && Number.isFinite(item.x) && Number.isFinite(item.y)).slice(0, 100)
+            .map((item, index) => ({ uid: Number.isInteger(item.uid) ? item.uid : index + 1, index: item.index, x: item.x, y: item.y }))
+          : [];
+        state.canvasNextId = state.canvasItems.reduce((max, item) => Math.max(max, item.uid), 0) + 1;
         loadedV3 = true;
       }
     } catch (_) {}
 
     if (!loadedV3) migratePreviousLocalStorage();
+    state.interactionMode = state.settings.interactionMode || "classic";
     ensureBaseDiscoveries();
     saveAppState();
   }
@@ -332,7 +350,8 @@
         records: state.records.slice(0, RECORDS_LIMIT),
         runs: state.runArchive.slice(0, RUN_ARCHIVE_LIMIT),
         pins: Array.from(state.pinnedIds),
-        settings: normalizeSettings(state.settings)
+        settings: normalizeSettings({ ...state.settings, interactionMode: state.interactionMode }),
+        canvasItems: state.canvasItems.slice(0, 100)
       };
       localStorage.setItem(APP_SAVE_KEY, JSON.stringify(payload));
     } catch (_) {}
@@ -352,7 +371,8 @@
       difficulty: $("#targetDifficulty")?.value || state.settings.difficulty,
       category: $("#targetCategory")?.value || state.settings.category,
       timerDuration: $("#timerDuration")?.value || state.settings.timerDuration,
-      customTimer: $("#customTimer")?.value || state.settings.customTimer
+      customTimer: $("#customTimer")?.value || state.settings.customTimer,
+      interactionMode: state.interactionMode
     });
     saveAppState();
   }
@@ -672,6 +692,330 @@
     }).join("");
   }
 
+  function setInteractionMode(mode) {
+    if (!["classic", "canvas"].includes(mode)) return;
+    state.interactionMode = mode;
+    state.settings.interactionMode = mode;
+    $("#craftBoard").classList.toggle("canvas-active", mode === "canvas");
+    $$("[data-interaction]").forEach((button) => {
+      const active = button.dataset.interaction === mode;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    saveAppState();
+    renderCollection();
+    renderCanvas();
+  }
+
+  function canvasPositionFromClient(clientX, clientY) {
+    const rect = $("#canvasSurface").getBoundingClientRect();
+    const w = 165, h = 48;
+    return {
+      x: Math.max(8, Math.min(rect.width - w - 8, clientX - rect.left - w / 2)),
+      y: Math.max(8, Math.min(rect.height - h - 8, clientY - rect.top - h / 2))
+    };
+  }
+
+  function nextCanvasGridPosition() {
+    const surface = $("#canvasSurface");
+    const columns = Math.max(1, Math.floor((surface.clientWidth - 16) / 240));
+    const x = 8 + (state.canvasItems.length % columns) * 240;
+    const y = 12 + Math.floor(state.canvasItems.length / columns) * 66;
+    return { x, y };
+  }
+
+  function addCanvasItem(index, x, y, animate = true) {
+    if (!Number.isInteger(index) || !element(index)) return null;
+    const pos = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : nextCanvasGridPosition();
+    const surface = $("#canvasSurface");
+    if (pos.y + 62 > surface.clientHeight) surface.style.minHeight = `${pos.y + 78}px`;
+    const maxX = Math.max(8, surface.clientWidth - 170), maxY = Math.max(8, surface.clientHeight - 60);
+    const placed = { uid: state.canvasNextId++, index, x: Math.max(8, Math.min(maxX, pos.x)), y: Math.max(8, Math.min(maxY, pos.y)) };
+    state.canvasItems.push(placed);
+    renderCanvas(animate ? placed.uid : null);
+    saveAppState();
+    return placed;
+  }
+
+  function renderCanvas(popUid = null) {
+    const surface = $("#canvasSurface");
+    if (!surface) return;
+    surface.querySelectorAll(".canvasToken").forEach((node) => node.remove());
+    const contentHeight = state.canvasItems.reduce((height, item) => Math.max(height, item.y + 62), 0);
+    surface.style.minHeight = `${Math.max(390, contentHeight + 16)}px`;
+    $("#canvasEmpty").classList.toggle("hidden", state.canvasItems.length > 0);
+    $("#canvasCount").textContent = `${state.canvasItems.length} élément${state.canvasItems.length > 1 ? "s" : ""} posé${state.canvasItems.length > 1 ? "s" : ""}`;
+    for (const placed of state.canvasItems) {
+      const item = element(placed.index);
+      if (!item) continue;
+      const token = document.createElement("button");
+      token.type = "button";
+      token.className = `canvasToken${placed.uid === popUid ? " justMade" : ""}`;
+      token.dataset.uid = String(placed.uid);
+      token.dataset.index = String(placed.index);
+      token.style.left = `${placed.x}px`;
+      token.style.top = `${placed.y}px`;
+      token.setAttribute("aria-label", `${item.name}. Glisser pour déplacer, clic simple pour supprimer, double clic pour dupliquer, triple clic pour fusionner avec lui-même.`);
+      token.title = "Glisser : déplacer · 1 clic : supprimer · 2 clics : dupliquer · 3 clics : fusionner avec lui-même";
+      token.innerHTML = `<span class="tokenEmoji">${escapeHtml(item.emoji)}</span><span class="tokenName">${escapeHtml(item.name)}</span>`;
+      surface.appendChild(token);
+    }
+  }
+
+  function canvasStartRunIfNeeded() {
+    if (state.mode === "free") return;
+    if (runIs(RUN_STATUS.READY)) startRun();
+    else if (runIs(RUN_STATUS.PLAYING)) state.run.elementClicks += 1;
+  }
+
+  function canvasDuplicate(placed) {
+    const surface = $("#canvasSurface");
+    const token = surface.querySelector(`.canvasToken[data-uid="${placed.uid}"]`);
+    const width = token?.offsetWidth || 130;
+    const height = token?.offsetHeight || 44;
+    const hasRoomRight = placed.x + width * 2 + 12 <= surface.clientWidth;
+    const clone = hasRoomRight
+      ? addCanvasItem(placed.index, placed.x + width + 8, placed.y)
+      : addCanvasItem(placed.index, 8, placed.y + height + 8);
+    if (clone) setMessage(`${element(placed.index).name} dupliqué sur le canvas.`, "muted");
+  }
+
+  function canvasDelete(placed) {
+    const item = element(placed.index);
+    state.canvasItems = state.canvasItems.filter((entry) => entry.uid !== placed.uid);
+    renderCanvas();
+    saveAppState();
+    if (item) setMessage(`${item.name} retiré du canvas.`, "muted");
+  }
+
+  function canvasSelfFuse(placed) {
+    const output = { x: placed.x, y: placed.y };
+    const index = placed.index;
+    state.canvasItems = state.canvasItems.filter((entry) => entry.uid !== placed.uid);
+    renderCanvas();
+    performCraft(index, index, output);
+  }
+
+  function executeCanvasTap(tap) {
+    if (!tap) return;
+    const placed = state.canvasItems.find((item) => item.uid === tap.uid);
+    if (!placed) return;
+    if (tap.count >= 3) canvasSelfFuse(placed);
+    else if (tap.count === 2) canvasDuplicate(placed);
+    else canvasDelete(placed);
+  }
+
+  function queueCanvasTap(placed) {
+    const now = performance.now();
+    let tap = state.lastCanvasTap;
+
+    if (tap && tap.uid !== placed.uid) {
+      window.clearTimeout(tap.timer);
+      state.lastCanvasTap = null;
+      executeCanvasTap(tap);
+      tap = null;
+    }
+
+    if (!tap || tap.uid !== placed.uid || now - tap.at > 380) {
+      tap = { uid: placed.uid, count: 1, at: now, timer: null };
+    } else {
+      tap.count += 1;
+      tap.at = now;
+    }
+
+    window.clearTimeout(tap.timer);
+    state.lastCanvasTap = tap;
+
+    if (tap.count >= 3) {
+      state.lastCanvasTap = null;
+      executeCanvasTap(tap);
+      return;
+    }
+
+    tap.timer = window.setTimeout(() => {
+      if (state.lastCanvasTap !== tap) return;
+      state.lastCanvasTap = null;
+      executeCanvasTap(tap);
+    }, 330);
+  }
+
+  function cancelCanvasTap(uid = null) {
+    const tap = state.lastCanvasTap;
+    if (!tap || (uid !== null && tap.uid !== uid)) return;
+    window.clearTimeout(tap.timer);
+    state.lastCanvasTap = null;
+  }
+
+  function canvasOverlap(dragged) {
+    const token = $("#canvasSurface").querySelector(`.canvasToken[data-uid="${dragged.uid}"]`);
+    if (!token) return null;
+    const rect = token.getBoundingClientRect();
+    const candidates = [...$("#canvasSurface").querySelectorAll(".canvasToken")]
+      .filter((node) => Number(node.dataset.uid) !== dragged.uid)
+      .map((node) => {
+        const other = node.getBoundingClientRect();
+        const width = Math.max(0, Math.min(rect.right, other.right) - Math.max(rect.left, other.left));
+        const height = Math.max(0, Math.min(rect.bottom, other.bottom) - Math.max(rect.top, other.top));
+        const overlap = width * height;
+        const smaller = Math.min(rect.width * rect.height, other.width * other.height);
+        return { node, ratio: smaller ? overlap / smaller : 0 };
+      })
+      .filter(({ ratio }) => ratio >= .18)
+      .sort((a, b) => b.ratio - a.ratio);
+    return candidates.length ? state.canvasItems.find((item) => item.uid === Number(candidates[0].node.dataset.uid)) || null : null;
+  }
+
+  function canvasTargetAtPoint(clientX, clientY) {
+    const candidates = [...$("#canvasSurface").querySelectorAll(".canvasToken")]
+      .filter((node) => {
+        const rect = node.getBoundingClientRect();
+        return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+      });
+    if (!candidates.length) return null;
+    const node = candidates[candidates.length - 1];
+    return state.canvasItems.find((item) => item.uid === Number(node.dataset.uid)) || null;
+  }
+
+  function beginCanvasPointer(event) {
+    const token = event.target.closest(".canvasToken");
+    if (!token || event.button !== 0) return;
+    event.preventDefault();
+    const uid = Number(token.dataset.uid);
+    const placed = state.canvasItems.find((item) => item.uid === uid);
+    if (!placed) return;
+    if (state.lastCanvasTap?.uid === uid) window.clearTimeout(state.lastCanvasTap.timer);
+    state.canvasPointer = {
+      uid, pointerId: event.pointerId,
+      offsetX: event.clientX - token.getBoundingClientRect().left,
+      offsetY: event.clientY - token.getBoundingClientRect().top,
+      startX: event.clientX, startY: event.clientY,
+      moved: false
+    };
+    token.setPointerCapture?.(event.pointerId);
+    token.classList.add("dragging");
+    canvasStartRunIfNeeded();
+  }
+
+  function moveCanvasPointer(event) {
+    const drag = state.canvasPointer;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const placed = state.canvasItems.find((item) => item.uid === drag.uid);
+    if (!placed) return;
+    const rect = $("#canvasSurface").getBoundingClientRect();
+    const token = $("#canvasSurface").querySelector(`.canvasToken[data-uid="${drag.uid}"]`);
+    placed.x = Math.max(8, Math.min(rect.width - (token?.offsetWidth || 150) - 8, event.clientX - rect.left - drag.offsetX));
+    placed.y = Math.max(8, Math.min(rect.height - (token?.offsetHeight || 42) - 8, event.clientY - rect.top - drag.offsetY));
+    if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 8) {
+      if (!drag.moved) cancelCanvasTap(drag.uid);
+      drag.moved = true;
+    }
+    if (token) {
+      token.style.left = `${placed.x}px`;
+      token.style.top = `${placed.y}px`;
+      token.classList.add("dragging");
+    }
+    const target = canvasOverlap(placed);
+    $("#canvasSurface").querySelectorAll(".mergeTarget").forEach((node) => node.classList.remove("mergeTarget"));
+    if (target) $("#canvasSurface").querySelector(`.canvasToken[data-uid="${target.uid}"]`)?.classList.add("mergeTarget");
+  }
+
+  function endCanvasPointer(event) {
+    const drag = state.canvasPointer;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    state.canvasPointer = null;
+    $("#canvasSurface").querySelectorAll(".dragging,.mergeTarget").forEach((node) => node.classList.remove("dragging", "mergeTarget"));
+    const placed = state.canvasItems.find((item) => item.uid === drag.uid);
+    if (!placed) return;
+
+    if (!drag.moved) {
+      queueCanvasTap(placed);
+      return;
+    }
+
+    const target = canvasOverlap(placed);
+    if (target) {
+      const output = { x: target.x, y: target.y };
+      const a = placed.index, b = target.index;
+      state.canvasItems = state.canvasItems.filter((item) => item.uid !== placed.uid && item.uid !== target.uid);
+      renderCanvas();
+      performCraft(a, b, output);
+    } else saveAppState();
+  }
+
+  function collectionPointerDown(event) {
+    const chip = event.target.closest(".elementChip");
+    if (!chip || state.interactionMode !== "canvas" || event.button !== 0) return;
+    state.collectionPointer = {
+      pointerId: event.pointerId,
+      index: Number(chip.dataset.index),
+      startX: event.clientX,
+      startY: event.clientY,
+      dragging: false,
+      ghost: null
+    };
+  }
+
+  function moveCollectionPointer(event) {
+    const drag = state.collectionPointer;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag.dragging && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 8) {
+      event.preventDefault();
+      drag.dragging = true;
+      drag.ghost = document.createElement("div");
+      drag.ghost.className = "canvasDragGhost";
+      const item = element(drag.index);
+      drag.ghost.textContent = `${item.emoji} ${item.name}`;
+      document.body.appendChild(drag.ghost);
+    }
+    if (drag.ghost) {
+      drag.ghost.style.left = `${event.clientX}px`;
+      drag.ghost.style.top = `${event.clientY}px`;
+    }
+
+    if (drag.dragging) {
+      const surface = $("#canvasSurface");
+      const rect = surface.getBoundingClientRect();
+      const inside = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+      surface.classList.toggle("isOver", inside);
+      surface.querySelectorAll(".mergeTarget").forEach((node) => node.classList.remove("mergeTarget"));
+      if (inside) {
+        const target = canvasTargetAtPoint(event.clientX, event.clientY);
+        if (target) surface.querySelector(`.canvasToken[data-uid="${target.uid}"]`)?.classList.add("mergeTarget");
+      }
+    }
+  }
+
+  function endCollectionPointer(event) {
+    const drag = state.collectionPointer;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    state.collectionPointer = null;
+    drag.ghost?.remove();
+    $("#canvasSurface").classList.remove("isOver");
+    $("#canvasSurface").querySelectorAll(".mergeTarget").forEach((node) => node.classList.remove("mergeTarget"));
+    if (!drag.dragging) return;
+    const surface = $("#canvasSurface").getBoundingClientRect();
+    if (event.clientX >= surface.left && event.clientX <= surface.right && event.clientY >= surface.top && event.clientY <= surface.bottom) {
+      canvasStartRunIfNeeded();
+      const target = canvasTargetAtPoint(event.clientX, event.clientY);
+      if (target) {
+        const output = { x: target.x, y: target.y };
+        state.canvasItems = state.canvasItems.filter((item) => item.uid !== target.uid);
+        renderCanvas();
+        performCraft(drag.index, target.index, output);
+      } else {
+        const pos = canvasPositionFromClient(event.clientX, event.clientY);
+        addCanvasItem(drag.index, pos.x, pos.y);
+      }
+    }
+    state.suppressCollectionClick = true;
+    window.setTimeout(() => { state.suppressCollectionClick = false; }, 0);
+  }
+
+  function addCanvasFromCollection(index) {
+    canvasStartRunIfNeeded();
+    addCanvasItem(index);
+  }
+
   function choose(index) {
     if (!Number.isInteger(index) || !activeDiscoverySet().has(index)) return;
     if (state.mode !== "free" && runIs(RUN_STATUS.READY)) startRun();
@@ -698,6 +1042,10 @@
   function fuse() {
     if (state.selected.length !== 2) return;
     const [a, b] = state.selected;
+    performCraft(a, b);
+  }
+
+  function performCraft(a, b, canvasOutput = null) {
     const rec = explicitRecipe(a, b);
     const resultIndex = rec ? rec.r : fallbackResult(a, b);
     const result = element(resultIndex);
@@ -733,6 +1081,7 @@
     $("#result").innerHTML = `<b>${escapeHtml(result.emoji)}</b><div><span class="eyebrow">RÉSULTAT</span><strong>${escapeHtml(result.name)}</strong></div>`;
     state.selected = [];
     renderSlots();
+    if (canvasOutput && state.interactionMode === "canvas") addCanvasItem(resultIndex, canvasOutput.x, canvasOutput.y);
     renderRunStats();
 
     if (rec && state.mode !== "free" && runIs(RUN_STATUS.PLAYING) && resultIndex === state.run.targetIndex) {
@@ -922,6 +1271,9 @@
     state.targetRolling = true;
     stopClock();
     resetSessionDiscoveries();
+    state.canvasItems = [];
+    renderCanvas();
+    saveAppState();
     state.run = null;
     resetHintButtons();
     $("#hintText").textContent = "L'objectif est en cours de tirage…";
@@ -1648,6 +2000,8 @@
     state.bases.forEach((index) => { state.free.discovered[element(index).id] = stamp++; });
     saveFree();
     state.selected = [];
+    state.canvasItems = [];
+    renderCanvas();
     renderFreeProgress();
     renderPokedex();
     renderSlots();
@@ -1670,7 +2024,7 @@
       body: `
         <p>Le gameplay tient en une règle : <strong>choisis deux éléments à fusionner</strong>.</p>
         <p>Si leur combinaison forme une recette, tu crées un nouvel élément. Ce nouvel élément rejoint ta collection et peut ensuite servir dans d'autres fusions.</p>
-        <span class="tutorialMini">Tu commences avec 4 éléments de base : Célébrités · Objet · Idée · Internet.</span>
+        <span class="tutorialMini">Tu commences avec 4 éléments de base : Personne · Objet · Idée · Internet.</span>
       `
     },
     {
@@ -1681,6 +2035,15 @@
         <p>Tous les éléments disponibles pour ta partie sont ici. Clique simplement sur deux éléments pour remplir les emplacements <strong>1</strong> et <strong>2</strong>.</p>
         <p>La recherche et les boutons de tri permettent de retrouver rapidement un élément. <strong>Tous les éléments</strong> ouvre l'annuaire complet de la base.</p>
         <span class="tutorialMini">Sur ordinateur : survole un élément pour voir sa recette la plus simple et utilise 📌 pour le garder en tête de ta collection.</span>
+      `
+    },
+    {
+      kicker: "CHOISIS TON STYLE",
+      title: "Deux façons de fusionner",
+      target: ".interactionBar",
+      body: `
+        <p>Tu peux garder la <strong>sélection classique</strong> en cliquant sur deux éléments dans ta collection.</p>
+        <p>Ou choisir le <strong>Canvas</strong> : clique sur un élément de la collection pour le déposer, ou glisse-le où tu veux. Superpose deux éléments pour les fusionner. Sur un élément posé : <strong>1 clic le supprime, 2 clics le dupliquent, 3 clics le fusionnent avec lui-même</strong>.</p>
       `
     },
     {
@@ -1808,11 +2171,11 @@
       };
     }
 
-    $("#recapTitle").textContent = "🐱 Chat";
+    $("#recapTitle").textContent = "🌟 Célébrités";
     $("#recapMeta").innerHTML = `
-      <div class="recapStat accentOrange"><b>00:42.318</b><span>Temps</span></div>
-      <div class="recapStat accentCyan"><b>8</b><span>Crafts</span></div>
-      <div class="recapStat accentPink"><b>8</b><span>Utiles</span></div>
+      <div class="recapStat accentOrange"><b>00:03.218</b><span>Temps</span></div>
+      <div class="recapStat accentCyan"><b>1</b><span>Craft</span></div>
+      <div class="recapStat accentPink"><b>1</b><span>Utile</span></div>
       <div class="recapStat accentLime"><b>0</b><span>Indices</span></div>
     `;
     $("#recapPath").innerHTML = `
@@ -1821,118 +2184,13 @@
           <div class="stepDot">1</div>
           <div class="stepBody">
             <div class="stepRecipe">
-              <span class="ingredient">🌟 Célébrités</span>
-              <span class="plusSign">+</span>
-              <span class="ingredient">🌟 Célébrités</span>
-            </div>
-            <div class="resultRow">
-              <span class="arrow">→</span>
-              <span class="resultName">👤 Personne</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="pathStep">
-          <div class="stepDot">2</div>
-          <div class="stepBody">
-            <div class="stepRecipe">
               <span class="ingredient">👤 Personne</span>
               <span class="plusSign">+</span>
               <span class="ingredient">👤 Personne</span>
             </div>
             <div class="resultRow">
               <span class="arrow">→</span>
-              <span class="resultName">🌱 Vie</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="pathStep">
-          <div class="stepDot">3</div>
-          <div class="stepBody">
-            <div class="stepRecipe">
-              <span class="ingredient">📦 Objet</span>
-              <span class="plusSign">+</span>
-              <span class="ingredient">💡 Idée</span>
-            </div>
-            <div class="resultRow">
-              <span class="arrow">→</span>
-              <span class="resultName">💻 Technologie</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="pathStep">
-          <div class="stepDot">4</div>
-          <div class="stepBody">
-            <div class="stepRecipe">
-              <span class="ingredient">💡 Idée</span>
-              <span class="plusSign">+</span>
-              <span class="ingredient">🌱 Vie</span>
-            </div>
-            <div class="resultRow">
-              <span class="arrow">→</span>
-              <span class="resultName">🌿 Nature</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="pathStep">
-          <div class="stepDot">5</div>
-          <div class="stepBody">
-            <div class="stepRecipe">
-              <span class="ingredient">💻 Technologie</span>
-              <span class="plusSign">+</span>
-              <span class="ingredient">🌿 Nature</span>
-            </div>
-            <div class="resultRow">
-              <span class="arrow">→</span>
-              <span class="resultName">🔋 Énergie</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="pathStep">
-          <div class="stepDot">6</div>
-          <div class="stepBody">
-            <div class="stepRecipe">
-              <span class="ingredient">🌱 Vie</span>
-              <span class="plusSign">+</span>
-              <span class="ingredient">🔋 Énergie</span>
-            </div>
-            <div class="resultRow">
-              <span class="arrow">→</span>
-              <span class="resultName">🏃 Mouvement</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="pathStep">
-          <div class="stepDot">7</div>
-          <div class="stepBody">
-            <div class="stepRecipe">
-              <span class="ingredient">🌱 Vie</span>
-              <span class="plusSign">+</span>
-              <span class="ingredient">🏃 Mouvement</span>
-            </div>
-            <div class="resultRow">
-              <span class="arrow">→</span>
-              <span class="resultName">🐾 Animal</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="pathStep">
-          <div class="stepDot">8</div>
-          <div class="stepBody">
-            <div class="stepRecipe">
-              <span class="ingredient">🌐 Internet</span>
-              <span class="plusSign">+</span>
-              <span class="ingredient">🐾 Animal</span>
-            </div>
-            <div class="resultRow">
-              <span class="arrow">→</span>
-              <span class="resultName">🐱 Chat</span>
+              <span class="resultName">🌟 Célébrités</span>
             </div>
           </div>
         </div>
@@ -2148,6 +2406,15 @@
       updateTimerSetup();
       $("#timerDuration").dispatchEvent(new Event("change", { bubbles: true }));
     });
+    $$('[data-interaction]').forEach((button) => button.addEventListener("click", () => setInteractionMode(button.dataset.interaction)));
+    $("#collection").addEventListener("pointerdown", collectionPointerDown);
+    window.addEventListener("pointermove", moveCollectionPointer);
+    window.addEventListener("pointerup", endCollectionPointer);
+    window.addEventListener("pointercancel", endCollectionPointer);
+    $("#canvasSurface").addEventListener("pointerdown", beginCanvasPointer);
+    window.addEventListener("pointermove", moveCanvasPointer);
+    window.addEventListener("pointerup", endCanvasPointer);
+    window.addEventListener("pointercancel", endCanvasPointer);
     $("#collection").addEventListener("click", (event) => {
       const pin = event.target.closest(".elementPinButton");
       if (pin) {
@@ -2158,7 +2425,11 @@
       }
 
       const button = event.target.closest(".elementChip");
-      if (button) choose(Number(button.dataset.index));
+      if (!button) return;
+      if (state.suppressCollectionClick) { event.preventDefault(); return; }
+      const index = Number(button.dataset.index);
+      if (state.interactionMode === "canvas") addCanvasFromCollection(index);
+      else choose(index);
     });
     $("#pokedexList").addEventListener("click", (event) => {
       const pin = event.target.closest(".elementPinButton");
@@ -2183,6 +2454,7 @@
       renderCollection();
     }));
     $("#clearSelection").addEventListener("click", () => { state.selected = []; renderSlots(); });
+    $("#clearCanvas").addEventListener("click", () => { state.canvasItems = []; $("#canvasSurface").style.minHeight = ""; renderCanvas(); saveAppState(); });
     $("#allRecipesButton")?.addEventListener("click", openElementsModal);
     $("#recipesClose")?.addEventListener("click", closeElementsModal);
     $("#recipesSearch")?.addEventListener("input", renderElementsDirectory);
@@ -2225,11 +2497,45 @@
     bindDesktopElementEnhancements();
   }
 
+  async function validatePackedDatabase(arrayBuffer, db) {
+    let bytes = new Uint8Array(arrayBuffer);
+    if (!bytes.length) throw new Error("craft-full.bin est vide");
+
+    if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+      if (typeof DecompressionStream !== "function") return;
+      const stream = new Blob([arrayBuffer]).stream().pipeThrough(new DecompressionStream("gzip"));
+      bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+
+    if (bytes.length < 16) throw new Error("craft-full.bin est invalide ou incomplet");
+    const magic = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+    if (magic !== "ICF1") throw new Error("craft-full.bin n'est pas une base ICF1 valide");
+
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const version = view.getUint32(4, true);
+    const elementCount = view.getUint32(8, true);
+    const recipeCount = view.getUint32(12, true);
+    const jsonRecipeCount = Math.floor(String(db.p || "").length / 9);
+
+    if (version !== 1) throw new Error(`Version craft-full.bin non reconnue : ${version}`);
+    if (elementCount !== Number(db.n)) {
+      throw new Error(`Les deux bases ne correspondent pas : ${db.n} éléments dans craft-db.json, ${elementCount} dans craft-full.bin`);
+    }
+    if (recipeCount !== jsonRecipeCount) {
+      throw new Error(`Les deux bases ne correspondent pas : ${jsonRecipeCount} recettes dans craft-db.json, ${recipeCount} dans craft-full.bin`);
+    }
+  }
+
   async function init() {
-    $("#dbStatus").textContent = "Chargement de la base…";
-    const response = await fetch(CORE_URL);
-    if (!response.ok) throw new Error(`craft-db.json HTTP ${response.status}`);
-    const db = await response.json();
+    $("#dbStatus").textContent = "Chargement de craft-db.json + craft-full.bin…";
+    const [jsonResponse, binResponse] = await Promise.all([
+      fetch(CORE_URL, { cache: "no-store" }),
+      fetch(PACKED_URL, { cache: "no-store" })
+    ]);
+    if (!jsonResponse.ok) throw new Error(`craft-db.json HTTP ${jsonResponse.status}`);
+    if (!binResponse.ok) throw new Error(`craft-full.bin HTTP ${binResponse.status}`);
+    const [db, packed] = await Promise.all([jsonResponse.json(), binResponse.arrayBuffer()]);
+    await validatePackedDatabase(packed, db);
     state.db = db;
     buildElements(db);
     decodeRecipes(db);
@@ -2257,6 +2563,8 @@
       ? state.settings.mode
       : "free";
     setMode(preferred);
+    setInteractionMode(state.interactionMode);
+    renderCanvas();
     persistSettingsFromUI();
 
     if (tutorialShouldAutoStart()) {

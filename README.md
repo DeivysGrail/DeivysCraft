@@ -1,54 +1,45 @@
-# DeivysCraft
+# DeivysCraft — version complète avec Recipe Editor
 
-DeivysCraft est un jeu de fusion inspiré d'Infinite Craft, centré sur la pop culture, les créateurs, le cinéma, les jeux vidéo, la musique et bien plus.
+Cette archive correspond à la version publique actuelle du jeu, avec le Recipe Editor privé réintégré pour le travail local.
 
-## Structure du projet
+## Structure
 
-```text
-DeivysCraft/
-├─ index.html
-├─ style.css
-├─ game.js
-├─ recipe-editor.html
-├─ vercel.json
-└─ src/
-   └─ data/
-      ├─ craft-db.json
-      └─ craft-full.bin
-```
+- `index.html` : interface publique du jeu
+- `style.css` : styles et responsive
+- `game.js` : moteur du jeu
+- `src/data/craft-db.json` : base éditable
+- `src/data/craft-full.bin` : base binaire synchronisée
+- `recipe-editor.html` : Recipe Editor V15 Full, à garder privé
+- `vercel.json` : configuration Vercel
 
-Le jeu public charge `src/data/craft-db.json`.  
-`craft-full.bin` reste synchronisé avec la base pour l'éditeur et les exports.
+## Workflow recommandé
 
-## Recipe Editor
+1. Travailler localement dans WebStorm.
+2. Ouvrir `recipe-editor.html` via le serveur local WebStorm.
+3. Charger/modifier `src/data/craft-db.json`.
+4. Exporter `craft-db.json` et `craft-full.bin` depuis l'éditeur.
+5. Remplacer les deux fichiers dans `src/data/`.
+6. Tester le jeu localement.
+7. Pousser uniquement les fichiers publics sur GitHub. Ne pas republier `recipe-editor.html`.
 
-Ouvre `recipe-editor.html` via un serveur local, par exemple WebStorm.
+Le jeu inclut la fenêtre `Tous les éléments`, la recherche, le responsive mobile compact des catégories et les boutons de tri par icônes.
 
-L'éditeur peut charger `src/data/craft-db.json`, modifier les éléments et recettes, puis exporter :
-- `craft-db.json`
-- `craft-full.bin`
 
-Pour publier une nouvelle version de la base, remplace ensuite les deux fichiers dans `src/data/` et pousse les changements sur `main`. Vercel redéploiera automatiquement le site une fois le dépôt connecté.
+## Base de départ
 
-## Modes
+Le joueur commence avec `Personne`, `Objet`, `Idée` et `Internet`. La recette `Personne + Personne → Célébrités` ouvre désormais la branche des célébrités.
 
-- Mode libre
-- Contre la montre
-- Speedrun
-- Catégories et difficultés
-- Indices progressifs
-- Records locaux
-- Récapitulatif du chemin gagnant
 
-## Vercel
+## Canvas de fusion
 
-Le projet est statique et ne nécessite pas de build.
+Deux méthodes sont disponibles : sélection classique de 2 éléments ou Canvas.
 
-- Framework Preset : Other
-- Root Directory : `./`
-- Build Command : vide
-- Output Directory : vide
-
-## Créateur
-
-Twitch : [DeivysLive](https://www.twitch.tv/DeivysLive)
+Dans le Canvas :
+- clic simple sur un élément de la collection : l'ajouter au Canvas ;
+- glisser depuis la collection : le placer exactement où tu veux ;
+- glisser directement sur un élément déjà posé : fusion immédiate ;
+- superposer deux éléments posés : fusion ;
+- clic simple sur un élément posé : suppression ;
+- double clic : duplication ;
+- triple clic : fusion de l'élément avec lui-même ;
+- `Vider le canvas` supprime tout ce qui est posé.
