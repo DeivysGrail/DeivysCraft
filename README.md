@@ -1,4 +1,4 @@
-# DeivysCraft — règles du jeu
+# DeivysCraft : règles du jeu
 
 
 
