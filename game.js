@@ -936,9 +936,15 @@
     if (target) {
       const output = { x: target.x, y: target.y };
       const a = placed.index, b = target.index;
-      state.canvasItems = state.canvasItems.filter((item) => item.uid !== placed.uid && item.uid !== target.uid);
-      renderCanvas();
-      performCraft(a, b, output);
+      if (explicitRecipe(a, b)) {
+        state.canvasItems = state.canvasItems.filter((item) => item.uid !== placed.uid && item.uid !== target.uid);
+        renderCanvas();
+        performCraft(a, b, output);
+      } else {
+        // Une fusion sans recette laisse les deux éléments superposés sur le canvas.
+        performCraft(a, b);
+        saveAppState();
+      }
     } else saveAppState();
   }
 
@@ -1062,7 +1068,7 @@
         !newDiscovery
       );
     } else {
-      setMessage(`Aucune recette définie : ${aEl.name} + ${bEl.name} → ${result.name} (repli fixe).`, "error", true);
+      setMessage(`Aucune recette définie pour l'instant`, "error", true);
     }
 
     if (state.mode !== "free" && state.run && runIs(RUN_STATUS.PLAYING)) {
